@@ -1,8 +1,14 @@
 tensorflow==2.16.1
 numpy>=1.26
 pillow>=10.0
+<<<<<<< HEAD
 pandas>=2.3.3
 pyinaturalist==0.20.2
 requests>=2.32.5
 tqdm>=4.67.1
 scikit-learn>=1.8.0
+=======
+keras-tuner
+wandb
+matplotlib
+>>>>>>> origin/model-finetuning

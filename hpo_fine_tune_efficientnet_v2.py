@@ -1,0 +1,265 @@
+import tensorflow as tf
+import keras_tuner as kt
+import tensorflow_probability as tfp
+from tensorflow.keras import layers
+from tensorflow.keras.optimizers import AdamW
+import os
+import wandb
+from wandb.keras import WandbCallback
+
+
+# =====================
+# CONFIG
+# =====================
+DATASET_DIR = "data"
+IMG_SIZE = 240
+BATCH_SIZE = 16
+EPOCHS_HEAD = 10
+EPOCHS_FINE = 20
+SEED = 42
+UNFREEZE_LAYERS = 50
+
+print(tf.config.list_physical_devices())
+
+AUTOTUNE = tf.data.AUTOTUNE
+
+
+# =====================
+# PLOTTING & LOGGING
+# =====================
+wandb.init(
+    project="mushroom-classification",
+    name="efficientnetv2m-hparam-search",
+    config={
+        "architecture": "EfficientNetV2-M",
+        "img_size": IMG_SIZE,
+        "batch_size": BATCH_SIZE,
+        "epochs_head": EPOCHS_HEAD,
+        "epochs_fine": EPOCHS_FINE,
+        "dataset": "custom_mushrooms",
+        "task": "species + edibility",
+    },
+)
+
+def log_confidence_stats(model, val_ds):
+    confidences = []
+    entropies = []
+
+    for images, _ in val_ds:
+        preds = model.predict(images, verbose=0)
+        confidences.extend(tf.reduce_max(preds, axis=1).numpy())
+        entropies.extend(
+            tfp.distributions.Categorical(probs=preds).entropy().numpy()
+        )
+
+    wandb.log({
+        "confidence/mean": float(tf.reduce_mean(confidences)),
+        "confidence/std": float(tf.math.reduce_std(confidences)),
+        "entropy/mean": float(tf.reduce_mean(entropies)),
+    })
+
+# =====================
+# MANUAL DATA LOADING + RESIZE_WITH_PAD
+# =====================
+def load_and_pad_image(path, label):
+    """Loads a JPEG image, converts to float32, pads to IMG_SIZE while preserving aspect ratio."""
+    image = tf.io.read_file(path)
+    image = tf.image.decode_jpeg(image, channels=3)
+    image = tf.image.convert_image_dtype(image, tf.float32)  # [0,1]
+    image = tf.image.resize_with_pad(image, IMG_SIZE, IMG_SIZE)
+    label = tf.one_hot(label, NUM_CLASSES)
+    return image, label
+
+def get_file_paths_and_labels(root_dir):
+    """Scans directory and returns sorted file paths and integer labels."""
+    class_names = sorted([d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))])
+    class_to_idx = {name: i for i, name in enumerate(class_names)}
+
+    paths, labels = [], []
+    for class_name in class_names:
+        class_dir = os.path.join(root_dir, class_name)
+        for fname in os.listdir(class_dir):
+            if fname.lower().endswith(('.jpg', '.jpeg', '.png')):
+                paths.append(os.path.join(class_dir, fname))
+                labels.append(class_to_idx[class_name])
+    return paths, labels, class_names
+
+# =====================
+# GET TRAIN + VAL FILES
+# =====================
+train_paths, train_labels, class_names = get_file_paths_and_labels(os.path.join(DATASET_DIR, "train"))
+val_paths, val_labels, _ = get_file_paths_and_labels(os.path.join(DATASET_DIR, "val"))
+
+NUM_CLASSES = len(class_names)
+
+# =====================
+# BUILD TF.DATA DATASETS
+# =====================
+train_ds = tf.data.Dataset.from_tensor_slices((train_paths, train_labels))
+train_ds = train_ds.shuffle(1000, seed=SEED)
+train_ds = train_ds.map(load_and_pad_image, num_parallel_calls=AUTOTUNE)
+train_ds = train_ds.batch(BATCH_SIZE).prefetch(AUTOTUNE)
+
+val_ds = tf.data.Dataset.from_tensor_slices((val_paths, val_labels))
+val_ds = val_ds.map(load_and_pad_image, num_parallel_calls=AUTOTUNE)
+val_ds = val_ds.batch(BATCH_SIZE).prefetch(AUTOTUNE)
+
+# =====================
+# DATA AUGMENTATION
+# =====================
+data_augmentation = tf.keras.Sequential([
+    layers.RandomFlip("horizontal"),
+    layers.RandomRotation(0.15),
+    layers.RandomZoom(0.2),
+    layers.RandomContrast(0.2),
+])
+
+# =====================
+# MODEL BUILDER (for tuning)
+# =====================
+def build_model(hp):
+    dense_units = hp.Choice("dense_units", [256, 512, 768])
+    dropout_rate = hp.Float("dropout", 0.3, 0.6, step=0.1)
+    lr = hp.Float("lr", 1e-4, 3e-3, sampling="log")
+    label_smoothing = hp.Float("label_smoothing", 0.0, 0.15, step=0.05)
+
+    base_model = tf.keras.applications.EfficientNetV2M(
+        include_top=False,
+        weights="imagenet",
+        input_shape=(IMG_SIZE, IMG_SIZE, 3),
+    )
+    base_model.trainable = False
+
+    inputs = tf.keras.Input(shape=(IMG_SIZE, IMG_SIZE, 3))
+    x = data_augmentation(inputs)
+    x = tf.keras.applications.efficientnet_v2.preprocess_input(x)
+
+    x = base_model(x, training=False)
+    x = layers.GlobalAveragePooling2D()(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Dense(dense_units, activation="relu")(x)
+    x = layers.Dropout(dropout_rate)(x)
+    outputs = layers.Dense(NUM_CLASSES, activation="softmax")(x)
+
+    model = tf.keras.Model(inputs, outputs)
+
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=lr),
+        loss=tf.keras.losses.CategoricalCrossentropy(
+            label_smoothing=label_smoothing
+        ),
+        metrics=[
+            "accuracy",
+            tf.keras.metrics.TopKCategoricalAccuracy(k=5, name="top5"),
+        ],
+    )
+
+    return model
+
+
+# =====================
+# HYPERPARAMETER SEARCH
+# =====================
+tuner = kt.BayesianOptimization(
+    build_model,
+    objective="val_accuracy",
+    max_trials=15,   # small but effective
+    directory="tuning",
+    project_name="mushroom_efficientnet_v2m",
+)
+
+tuner.search(
+    train_ds,
+    validation_data=val_ds,
+    epochs=EPOCHS_HEAD,
+    callbacks=[
+        WandbCallback(
+            save_model=False,
+            log_weights=False,
+        ),
+        tf.keras.callbacks.EarlyStopping(
+            monitor="val_loss",
+            patience=3,
+            restore_best_weights=True,
+        )
+    ],
+)
+
+best_hp = tuner.get_best_hyperparameters(1)[0]
+print("Best hyperparameters:", best_hp.values)
+
+wandb.config.update(best_hp.values)
+
+
+# =====================
+# REBUILD BEST MODEL
+# =====================
+model = tuner.hypermodel.build(best_hp)
+model.summary()
+
+# =====================
+# PHASE 1: TRAIN HEAD
+# =====================
+print("\n Training classifier head with best hyperparameters...")
+model.fit(
+    train_ds,
+    validation_data=val_ds,
+    epochs=EPOCHS_HEAD,
+    callbacks=[
+        WandbCallback(
+            monitor="val_loss",
+            save_model=False,
+            log_weights=True,
+        )
+    ],
+)
+print("\n Logging confidence stats (after head training)")
+log_confidence_stats(model, val_ds)
+
+# =====================
+# PHASE 2: FINE-TUNING
+# =====================
+base_model = model.layers[3]  # EfficientNet backbone
+
+base_model.trainable = True
+
+# Unfreeze last N layers (fixed for reproducibility)
+for layer in base_model.layers[:-UNFREEZE_LAYERS]:
+    layer.trainable = False
+
+model.compile(
+    optimizer=AdamW(
+        learning_rate=1e-5,
+        weight_decay=1e-4,
+    ),
+    loss=tf.keras.losses.CategoricalCrossentropy(
+        label_smoothing=best_hp.get("label_smoothing")
+    ),
+    metrics=[
+        "accuracy",
+        tf.keras.metrics.TopKCategoricalAccuracy(k=5, name="top5"),
+    ],
+)
+
+print("\n Fine-tuning model...")
+model.fit(
+    train_ds,
+    validation_data=val_ds,
+    epochs=EPOCHS_FINE,
+    callbacks=[
+        WandbCallback(
+            monitor="val_loss",
+            save_model=False,
+            log_weights=True,
+        )
+    ],
+)
+
+print("\n Logging confidence stats (after fine-tuning)")
+log_confidence_stats(model, val_ds)
+
+# =====================
+# SAVE MODEL
+# =====================
+model.save("output/efficientnet_v2_m_mushrooms")
+print("\n Model saved!")
