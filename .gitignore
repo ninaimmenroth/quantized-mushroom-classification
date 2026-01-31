@@ -212,7 +212,7 @@ __marimo__/
 .LSOverride
 
 # too much data and logs
-data/
+images/
 logs/
 tuning/
 wandb/

@@ -6,7 +6,7 @@ import os
 # =====================
 # CONFIG
 # =====================
-DATASET_DIR = "data"
+DATASET_DIR = "images"
 IMG_SIZE = 240          # final size for model input
 BATCH_SIZE = 16
 EPOCHS_HEAD = 10

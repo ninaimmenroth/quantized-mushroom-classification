@@ -13,7 +13,7 @@ from pathlib import Path
 # =====================
 # CONFIG
 # =====================
-DATASET_DIR = "data"
+DATASET_DIR = "images"
 IMG_SIZE = 240
 BATCH_SIZE = 16
 EPOCHS_HEAD = 10
@@ -286,8 +286,7 @@ model.fit(
         ConfidenceLogger(val_ds),
     ],
 )
-logger.info("\n Logging confidence stats (after head training)")
-log_confidence_stats(model, val_ds)
+
 
 # =====================
 # PHASE 2: FINE-TUNING
@@ -332,8 +331,6 @@ model.fit(
     ],
 )
 
-#logger.info("\n Logging confidence stats (after fine-tuning)")
-#log_confidence_stats(model, val_ds, logger)
 
 final_metrics = model.evaluate(val_ds, return_dict=True)
 logger.info(f"Final validation metrics: {final_metrics}")
