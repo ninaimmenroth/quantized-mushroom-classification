@@ -1,0 +1,27 @@
+# Core ML
+tensorflow==2.16.1
+tf-keras>=2.16
+scikit-learn>=1.8.0
+pandas>=2.3.3
+
+# Math / image utils
+numpy>=1.26
+pillow>=10.0
+scipy>=1.11
+
+# API
+pyinaturalist==0.20.2
+requests>=2.32.5
+
+# Hyperparameter tuning
+keras-tuner>=1.4.6
+
+# Probabilistic tools (compatible with TF 2.16)
+tensorflow-probability==0.24.0
+
+# Experiment tracking
+wandb>=0.16
+
+# Plotting / debugging
+matplotlib>=3.8
+tqdm>=4.67.1
