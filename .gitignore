@@ -214,3 +214,9 @@ __marimo__/
 .DS_Store
 .AppleDouble
 .LSOverride
+
+# too much data and logs
+images/
+logs/
+tuning/
+wandb/
