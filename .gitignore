@@ -1,6 +1,7 @@
 # Images folder
 data/images/
 data/images.tar.gz
+*.tar.gz
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
