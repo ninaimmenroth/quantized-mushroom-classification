@@ -5,6 +5,7 @@ import os
 import wandb
 from dataloader import build_dataset
 from ResNet_Classifier import ResNet50Classifier
+from evaluate import evaluate_model
 
 
 # =====================
@@ -12,8 +13,8 @@ from ResNet_Classifier import ResNet50Classifier
 # =====================
 DATASET_DIR = "data/images"
 IMG_SIZE = 240          # final size for model input
-BATCH_SIZE = 16
-EPOCHS = 1
+BATCH_SIZE = 64
+EPOCHS = 100
 NUM_CLASSES = None      # auto-detected
 SEED = 42
 OUTPUT_DIR = "output"
@@ -34,8 +35,7 @@ wandb.init(
         "epochs_head": EPOCHS,
         "optimizer": "Adam",
         "learning_rate": 1e-3,
-    },
-    reinit=True
+    }
 )
 
 AUTOTUNE = tf.data.AUTOTUNE
@@ -121,11 +121,24 @@ model.fit(
 
 
 # =====================
+# EVALUATE MODEL
+# =====================
+metrics = evaluate_model(
+    model,
+    val_ds,
+    class_names,
+    edibility_csv="data/inaturalist_mushroom_taxon_id.csv",
+    log_wandb=True
+)
+
+# =====================
 # SAVE MODEL
 # =====================
 model_path = os.path.join(OUTPUT_DIR, MODEL_NAME)
 model.save_weights(model_path)
 print("\n Model saved!")
 
+
 # Finish W&B run
 wandb.finish()
+
