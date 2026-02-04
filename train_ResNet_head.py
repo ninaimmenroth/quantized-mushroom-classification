@@ -4,6 +4,7 @@ from tensorflow.keras.optimizers import AdamW
 import os
 import wandb
 from dataloader import build_dataset
+from ResNet_Classifier import ResNet50Classifier
 
 
 # =====================
@@ -16,7 +17,7 @@ EPOCHS = 1
 NUM_CLASSES = None      # auto-detected
 SEED = 42
 OUTPUT_DIR = "output"
-MODEL_NAME = "ResNet50_Mushrooms.keras"
+MODEL_NAME = "ResNet50_Mushrooms.h5"
 
 print(tf.config.list_physical_devices())
 
@@ -24,6 +25,7 @@ print(tf.config.list_physical_devices())
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 wandb.init(
+    entity="luke-d-richard-berliner-hochschule-f-r-technik",
     project="mushroom-classification",
     name="resnet50_head",
     config={
@@ -46,6 +48,7 @@ class WandbLogger(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         if logs:
             wandb.log(logs, step=epoch)
+
 
 # =====================
 # BUILD DATASETS
@@ -73,41 +76,12 @@ val_ds, class_names = build_dataset(
 
 NUM_CLASSES = len(class_names)
 
+
 # =====================
-# DATA AUGMENTATION
+# CREATE RESNET BASELINE MODEL
 # =====================
-data_augmentation = tf.keras.Sequential([
-    layers.RandomFlip("horizontal"),
-    layers.RandomRotation(0.15),
-    layers.RandomZoom(0.2),
-    layers.RandomContrast(0.2),
-])
-
-
-# =========================================
-# MODEL: ResNet with Classifier Head
-# =========================================
-base_model = tf.keras.applications.ResNet50(
-    weights='imagenet',       # pretrained on ImageNet
-    include_top=False,        # exclude the original classifier
-    input_shape=(IMG_SIZE, IMG_SIZE, 3)  # adjust to your image size
-)
-
-base_model.trainable = False # freeze layers
-
-# Create the classification head
-inputs = tf.keras.Input(shape=(IMG_SIZE, IMG_SIZE, 3))
-x = data_augmentation(inputs)
-x = tf.keras.applications.resnet50.preprocess_input(x)
-
-x = base_model(x, training=False)
-x = layers.GlobalAveragePooling2D()(x)
-x = layers.BatchNormalization()(x)
-# x = layers.Dense(512, activation="relu")(x)
-# x = layers.Dropout(0.4)(x)
-
-outputs = layers.Dense(NUM_CLASSES, activation="softmax")(x)
-model = tf.keras.Model(inputs, outputs)
+classifier = ResNet50Classifier(IMG_SIZE, NUM_CLASSES, use_augmentation=True)
+model = classifier.model
 
 model.summary()
 
@@ -150,7 +124,7 @@ model.fit(
 # SAVE MODEL
 # =====================
 model_path = os.path.join(OUTPUT_DIR, MODEL_NAME)
-model.save(model_path)
+model.save_weights(model_path)
 print("\n Model saved!")
 
 # Finish W&B run
