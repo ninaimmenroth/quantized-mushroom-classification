@@ -7,25 +7,46 @@ import os
 import wandb
 import logging
 import sys
+import numpy as np
+import random
 from datetime import datetime
 from pathlib import Path
+from evaluate import evaluate_model
 
 # =====================
 # CONFIG
 # =====================
-DATASET_DIR = "images"
+DATASET_DIR = "data/images"
 IMG_SIZE = 240
-BATCH_SIZE = 16
+BATCH_SIZE = 64
 EPOCHS_HEAD = 10
 EPOCHS_FINE = 20
 SEED = 42
 UNFREEZE_LAYERS = 50
-SMOKE_TEST = True
+SMOKE_TEST = False
 
 if SMOKE_TEST:
     EPOCHS_HEAD = 2
     EPOCHS_FINE = 2
     BATCH_SIZE = 4
+    # =====================
+    # REPRODUCIBILITY - Only for smoke tests
+    # =====================
+    random.seed(SEED)
+    np.random.seed(SEED)
+    tf.random.set_seed(SEED)
+    os.environ['PYTHONHASHSEED'] = str(SEED)
+    os.environ['TF_DETERMINISTIC_OPS'] = '1'
+    os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
+    tf.config.experimental.enable_op_determinism()
+    print(f"Deterministic mode enabled for smoke test (seed={SEED})")
+else:
+    # Still set seed for some reproducibility, but without performance hit
+    random.seed(SEED)
+    np.random.seed(SEED)
+    tf.random.set_seed(SEED)
+    print(f"Non-deterministic mode (faster training, seed={SEED})")
+
 
 AUTOTUNE = tf.data.AUTOTUNE
 
@@ -33,24 +54,10 @@ AUTOTUNE = tf.data.AUTOTUNE
 # =====================
 # PLOTTING & LOGGING
 # =====================
-class WandbEpochLogger(tf.keras.callbacks.Callback):
-    def on_epoch_end(self, epoch, logs=None):
-        if logs is not None:
-            wandb.log({f"hpo/{k}": v for k, v in logs.items()}, step=epoch)
-
-
-class ConfidenceLogger(tf.keras.callbacks.Callback):
-    def __init__(self, val_ds):
-        self.val_ds = val_ds
-
-    def on_epoch_end(self, epoch, logs=None):
-        log_confidence_stats(self.model, self.val_ds)
-
-
 wandb.init(
-    project="test", #mushroom-classification
-    name= "SMOKE_TEST-efficientnetv2m",#"efficientnetv2m-hparam-search",
-    tags=["smoke-test"],
+    project="mushroom-classification", #"test",
+    name= "efficientnetv2m-hparam-search",#"SMOKE_TEST-efficientnetv2m",
+    # tags=["smoke-test"],
     config={
         "smoke_test": SMOKE_TEST,
         "architecture": "EfficientNetV2-M",
@@ -62,6 +69,49 @@ wandb.init(
         "task": "species + edibility",
     },
 )
+
+
+global_step = 0  # Single counter that increments throughout entire run
+
+class WandbHPOEpochLogger(tf.keras.callbacks.Callback):
+    def on_train_begin(self, logs=None):
+        logger.info("HPO callback: on_train_begin called")
+    
+    def on_epoch_begin(self, epoch, logs=None):
+        logger.info(f"HPO callback: on_epoch_begin - epoch {epoch}")
+    
+    def on_epoch_end(self, epoch, logs=None):
+        global global_step
+        logger.info(f"HPO callback: on_epoch_end - epoch {epoch}, logs: {logs}")
+        if logs:
+            global_step += 1
+            log_dict = {
+                **{f"hpo/{k}": v for k, v in logs.items()},
+            }
+            logger.info(f"HPO Step {global_step}: Logging {log_dict}")
+            wandb.log(log_dict, step=global_step)
+        else:
+            logger.warning("HPO callback: logs is None!")
+
+
+class WandbFinetuneEpochLogger(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs=None):
+        global global_step
+        if logs:
+            global_step += 1
+            log_dict = {
+                **{f"finetune/{k}": v for k, v in logs.items()},
+            }
+            logger.info(f"Finetune Step {global_step}: Logging {log_dict}")
+            wandb.log(log_dict, step=global_step)
+
+
+class ConfidenceLogger(tf.keras.callbacks.Callback):
+    def __init__(self, val_ds):
+        self.val_ds = val_ds
+
+    def on_epoch_end(self, epoch, logs=None):
+        log_confidence_stats(self.model, self.val_ds, epoch=epoch)
 
 
 def setup_logger(log_dir="logs", run_name="run"):
@@ -96,8 +146,8 @@ logger, log_file = setup_logger(
     run_name=wandb.run.name if wandb.run else "local_run"
 )
 
-logger.info("Logger initialized")
-logger.info(f"Log file: {log_file}")
+logger.info("\n Logger initialized")
+logger.info(f"\n Log file: {log_file}")
 
 logger.info(tf.config.list_physical_devices())
 
@@ -109,7 +159,8 @@ def log_exceptions(exc_type, exc_value, exc_traceback):
 
 sys.excepthook = log_exceptions
 
-def log_confidence_stats(model, val_ds, logger=None):
+def log_confidence_stats(model, val_ds, epoch=0, logger_obj=None):
+    global global_step
     confidences = []
     entropies = []
 
@@ -121,16 +172,18 @@ def log_confidence_stats(model, val_ds, logger=None):
         )
 
     stats = {
-        "confidence/mean": float(tf.reduce_mean(confidences)),
-        "confidence/std": float(tf.math.reduce_std(confidences)),
-        "entropy/mean": float(tf.reduce_mean(entropies)),
+        "stats/confidence_mean": float(tf.reduce_mean(confidences)),
+        "stats/confidence_std": float(tf.math.reduce_std(confidences)),
+        "stats/entropy_mean": float(tf.reduce_mean(entropies)),
     }
 
-    if logger:
-        logger.info(f"Confidence stats: {stats}")
+    if logger_obj:
+        logger_obj.info(f"Confidence stats: {stats}")
 
-    wandb.log(stats)
+    global_step += 1
+    wandb.log(stats, step=global_step)
 
+    
 # =====================
 # MANUAL DATA LOADING + RESIZE WITH PADDING
 # =====================
@@ -169,7 +222,7 @@ NUM_CLASSES = len(class_names)
 # BUILD TF.DATA DATASETS
 # =====================
 train_ds = tf.data.Dataset.from_tensor_slices((train_paths, train_labels))
-train_ds = train_ds.shuffle(1000, seed=SEED)
+train_ds = train_ds.shuffle(len(train_paths), seed=SEED)
 train_ds = train_ds.map(load_and_pad_image, num_parallel_calls=AUTOTUNE)
 train_ds = train_ds.batch(BATCH_SIZE).prefetch(AUTOTUNE)
 
@@ -178,7 +231,7 @@ val_ds = val_ds.map(load_and_pad_image, num_parallel_calls=AUTOTUNE)
 val_ds = val_ds.batch(BATCH_SIZE).prefetch(AUTOTUNE)
 
 if SMOKE_TEST:
-    logger.info("!!! SMOKE TEST MODE: Using tiny dataset")
+    logger.info("\n !!! SMOKE TEST MODE: Using tiny dataset")
 
     train_ds = train_ds.take(2)   # 2 batches total
     val_ds = val_ds.take(2)
@@ -186,21 +239,33 @@ if SMOKE_TEST:
 # =====================
 # DATA AUGMENTATION
 # =====================
-data_augmentation = tf.keras.Sequential([
-    layers.RandomFlip("horizontal"),
-    layers.RandomRotation(0.15),
-    layers.RandomZoom(0.2),
-    layers.RandomContrast(0.2),
-])
+if SMOKE_TEST:
+    # Use only deterministic augmentations for smoke tests
+    data_augmentation = tf.keras.Sequential([
+        layers.RandomFlip("horizontal"),
+        layers.RandomRotation(0.15),
+        layers.RandomZoom(0.2),
+        # RandomContrast removed - not deterministic on GPU
+    ])
+else:
+    # Full augmentation for production
+    data_augmentation = tf.keras.Sequential([
+        layers.RandomFlip("horizontal"),
+        layers.RandomRotation(0.15),
+        layers.RandomZoom(0.2),
+        layers.RandomContrast(0.2),
+    ])
 
 # =====================
 # MODEL BUILDER (for tuning)
 # =====================
 def build_model(hp):
-    dense_units = hp.Choice("dense_units", [256, 512, 768])
-    dropout_rate = hp.Float("dropout", 0.3, 0.6, step=0.1)
+    head_type = hp.Choice("head_type", ["linear", "dense"])
+
+    #dense_units = hp.Choice("dense_units", [256, 512, 768])
+    dropout_rate = hp.Float("dropout", 0.0, 0.2, step=0.1)
     lr = hp.Float("lr", 1e-4, 3e-3, sampling="log")
-    label_smoothing = hp.Float("label_smoothing", 0.0, 0.15, step=0.05)
+    label_smoothing = hp.Float("label_smoothing", 0.0, 0.2, step=0.1)
 
     base_model = tf.keras.applications.EfficientNetV2M(
         include_top=False,
@@ -216,7 +281,8 @@ def build_model(hp):
     x = base_model(x, training=False)
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.BatchNormalization()(x)
-    x = layers.Dense(dense_units, activation="relu")(x)
+    if head_type == 'dense':
+        x = layers.Dense(512, activation="relu")(x)
     x = layers.Dropout(dropout_rate)(x)
     outputs = layers.Dense(NUM_CLASSES, activation="softmax")(x)
 
@@ -225,7 +291,7 @@ def build_model(hp):
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=lr),
         loss=tf.keras.losses.CategoricalCrossentropy(
-            label_smoothing=label_smoothing
+            label_smoothing=0.1
         ),
         metrics=[
             "accuracy",
@@ -243,8 +309,9 @@ tuner = kt.BayesianOptimization(
     build_model,
     objective="val_accuracy",
     max_trials=2 if SMOKE_TEST else 15,
-    directory="tuning",
+    directory="tuning_2",
     project_name="mushroom_efficientnet_v2m",
+    seed=SEED if SMOKE_TEST else None,
 )
 
 tuner.search(
@@ -252,7 +319,7 @@ tuner.search(
     validation_data=val_ds,
     epochs=EPOCHS_HEAD,
     callbacks=[
-        WandbEpochLogger(),
+        WandbHPOEpochLogger(),
         tf.keras.callbacks.EarlyStopping(
             monitor="val_loss",
             patience=3,
@@ -262,7 +329,7 @@ tuner.search(
 )
 
 best_hp = tuner.get_best_hyperparameters(1)[0]
-logger.info("Best hyperparameters:", best_hp.values)
+logger.info("\n Best hyperparameters:", best_hp.values)
 
 wandb.config.update(best_hp.values)
 
@@ -282,7 +349,7 @@ model.fit(
     validation_data=val_ds,
     epochs=EPOCHS_HEAD,
     callbacks=[
-        WandbEpochLogger(),
+        WandbFinetuneEpochLogger(),
         ConfidenceLogger(val_ds),
     ],
 )
@@ -326,22 +393,32 @@ model.fit(
     validation_data=val_ds,
     epochs=EPOCHS_FINE,
     callbacks=[
-        WandbEpochLogger(),
+        WandbFinetuneEpochLogger(),
         ConfidenceLogger(val_ds),
     ],
 )
 
 
 final_metrics = model.evaluate(val_ds, return_dict=True)
-logger.info(f"Final validation metrics: {final_metrics}")
+logger.info(f"\n Final validation metrics: {final_metrics}")
 
 wandb.log({f"final/{k}": v for k, v in final_metrics.items()})
+
+metrics = evaluate_model(
+    model,
+    val_ds,
+    class_names,
+    edibility_csv="data/inaturalist_mushroom_taxon_id.csv",
+    single_log=True,
+    plot_confusion_matrix=True,
+)
 
 
 # =====================
 # SAVE MODEL
 # =====================
 model.save("output/efficientnet_v2_m_mushrooms")
+model.save_weights("output/efficientnet_v2_m_mushrooms.h5")
 logger.info("\n Model saved!")
 
 wandb.save(str(log_file))
