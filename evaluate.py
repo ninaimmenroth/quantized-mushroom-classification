@@ -27,7 +27,16 @@ SEED = 42
 MODEL_PATH = "output/ResNet50_Mushrooms.keras"
 
 
-def evaluate_model(model, dataset, class_names, edibility_csv=None, top_k=(3, 5), log_wandb=True):
+def evaluate_model(
+    model, 
+    dataset, 
+    class_names, 
+    edibility_csv=None,
+    species_to_edible=None, # optional dictionary to pass if edibiilty metrics computed per epoch 
+    top_k=(3, 5), 
+    single_log:bool=False,
+    plot_confusion_matrix:bool=False
+):
     """
     Evaluate model and optionally log metrics to W&B.
     Returns a dictionary of metrics for convenience.
@@ -64,13 +73,14 @@ def evaluate_model(model, dataset, class_names, edibility_csv=None, top_k=(3, 5)
         metrics[f"top_{k}_accuracy"] = topk
 
     # Edibility metrics
-    if edibility_csv is not None:
+    if edibility_csv is not None and species_to_edible is None:
         ed_df = pd.read_csv(edibility_csv)
         # Convert spaces to underscores to match folder names
         ed_df["Species_Label"] = ed_df["Species_Label"].str.replace(" ", "_")
         # Map to bool
         species_to_edible = dict(zip(ed_df["Species_Label"], ed_df["Edible"].map({"Yes": True, "No": False})))
 
+    if species_to_edible is not None:
         true_species = [class_names[i] for i in y_true]
         pred_species = [class_names[i] for i in y_pred]
 
@@ -81,31 +91,30 @@ def evaluate_model(model, dataset, class_names, edibility_csv=None, top_k=(3, 5)
         metrics["precision_edible"] = precision_score(true_edible, pred_edible)
         metrics["auc_edible"] = roc_auc_score(true_edible, pred_edible)
 
-    if log_wandb:
-        # Log scalar metrics
-        wandb.log(metrics, step=None)
+    if single_log:
+        # Prefix all metric keys with "eval/"
+        wandb.log({f"Evaluation Metrics/{k}": v for k, v in metrics.items()}, step=None)
+
 
 
     # Log species confusion matrix as well
-    if log_wandb:
+    if plot_confusion_matrix:
         fig, ax = plt.subplots(figsize=(10,8))
         sns.heatmap(cm_species, annot=True, fmt="d", cmap="Blues", xticklabels=class_names, yticklabels=class_names, ax=ax)
         plt.xlabel("Predicted")
         plt.ylabel("True")
         plt.title("Species Confusion Matrix")
-
-        wandb.log({"Species_confusion_matrix": wandb.Image(fig)})
+        wandb.log({f"Confusion_Matrices/Species_confusion_matrix": wandb.Image(fig)})
         plt.close(fig)
 
         # Plot confusion matrix and log to W&B
-        if edibility_csv is not None:
+        if species_to_edible is not None:
             fig, ax = plt.subplots(figsize=(5,4))
             sns.heatmap(cm_edibility, annot=True, fmt="d", cmap="Blues", xticklabels=["Edible","Inedible"], yticklabels=["Edible","Inedible"], ax=ax)
             plt.xlabel("Predicted")
             plt.ylabel("True")
             plt.title("Edibility Confusion Matrix")
-
-            wandb.log({"edibility_confusion_matrix": wandb.Image(fig)})
+            wandb.log({f"Confusion_Matrices/Edibility_confusion_matrix": wandb.Image(fig)})
             plt.close(fig)
 
     return metrics
