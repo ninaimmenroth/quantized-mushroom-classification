@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow.keras.optimizers import AdamW
 
-class EfficientNetV2_Classifier:
+class EfficientNet_Classifier:
     def __init__(
         self,
         base_model, 
@@ -87,13 +87,16 @@ class EfficientNetV2_Classifier:
         train_ds, 
         val_ds,
         epochs_fine:int=20, 
-        num_unfreeze:int=50, 
+        percent_unfreeze:float=0.2, 
         learning_rate:float=1e-5,
         weight_decay:float=1e-4,
         callbacks:list=None,
     ):
 
         self.base_model.trainable = True    # make base model trainable
+
+        n_layers = len(self.base_model.layers)
+        num_unfreeze = int(n_layers * percent_unfreeze)
 
         # keep batch norm layers frozen
         for layer in self.base_model.layers:
