@@ -23,5 +23,7 @@ keras-tuner>=1.4.6
 wandb>=0.16
 
 # Plotting / debugging
+plotly >= 6.5.2
+seaborn == 0.13.2
 matplotlib>=3.8
 tqdm>=4.67.1
