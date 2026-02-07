@@ -3,6 +3,7 @@ from tensorflow.keras import layers
 from tensorflow.keras.optimizers import AdamW
 import os
 import wandb
+import pandas as pd
 from dataloader import build_dataset
 from ResNet_Classifier import ResNet50Classifier
 from evaluate import evaluate_model
@@ -14,7 +15,7 @@ from evaluate import evaluate_model
 DATASET_DIR = "data/images"
 IMG_SIZE = 240          # final size for model input
 BATCH_SIZE = 64
-EPOCHS = 100
+EPOCHS = 50
 NUM_CLASSES = None      # auto-detected
 SEED = 42
 OUTPUT_DIR = "output"
@@ -34,7 +35,7 @@ wandb.init(
         "batch_size": BATCH_SIZE,
         "epochs_head": EPOCHS,
         "optimizer": "Adam",
-        "learning_rate": 1e-3,
+        "learning_rate": 1e-4,
     }
 )
 
@@ -44,10 +45,49 @@ AUTOTUNE = tf.data.AUTOTUNE
 # WANDB LOGGER
 # =====================
 class WandbLogger(tf.keras.callbacks.Callback):
-    """Logs training & validation metrics to WandB per epoch."""
+    """Logs training & validation metrics to W&B per epoch, including evaluation metrics."""
+    def __init__(self, val_ds, class_names, edibility_csv=None):
+        super().__init__()
+        self.val_ds = val_ds
+        self.class_names = class_names
+        self.edibility_csv = edibility_csv
+        # Preprocess edibility CSV once
+        self.species_to_edible = None
+        if edibility_csv is not None:
+            ed_df = pd.read_csv(edibility_csv)
+            ed_df["Species_Label"] = ed_df["Species_Label"].str.replace(" ", "_")
+            self.species_to_edible = dict(
+                zip(ed_df["Species_Label"], ed_df["Edible"].map({"Yes": True, "No": False}))
+            )
+
     def on_epoch_end(self, epoch, logs=None):
         if logs:
-            wandb.log(logs, step=epoch)
+            wandb.log({f"Training Logs/{k}": float(v) for k, v in logs.items()})
+
+        # Evaluate without confusion matrices
+        # eval_metrics = evaluate_model(
+            # self.model,
+            # self.val_ds,
+            # self.class_names,
+            # species_to_edible=self.species_to_edible,
+            # single_log=False,           # skip charts
+            # plot_confusion_matrix=False # skip confusion matrices during training
+        # )
+
+        # Log evaluation metrics using same global step
+        # wandb.log({f"metrics/{k}": float(v) for k, v in eval_metrics.items()})
+
+    def on_train_end(self, logs=None):
+        # Plot confusion matrices only once at the end
+        evaluate_model(
+            self.model,
+            self.val_ds,
+            self.class_names,
+            species_to_edible=self.species_to_edible,
+            single_log=True,
+            plot_confusion_matrix=True
+        )
+
 
 
 # =====================
@@ -65,7 +105,7 @@ train_ds, class_names = build_dataset(
 )
 
 # build validation dataset
-val_ds, class_names = build_dataset(
+val_ds, _ = build_dataset(
     dataset_dir=DATASET_DIR,
     fold = "val",
     batch_size=BATCH_SIZE,
@@ -92,7 +132,7 @@ model.summary()
 model.compile(
     optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
     loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
-    metrics=["accuracy"],
+    metrics=["accuracy", tf.keras.metrics.TopKCategoricalAccuracy(k=5, name="top5"),]
 )
 
 # =====================
@@ -106,7 +146,11 @@ early_stopping = tf.keras.callbacks.EarlyStopping(
     verbose=1
 )
 
-wandb_cb = WandbLogger()
+train_cb = WandbLogger(
+    val_ds, 
+    class_names, 
+    edibility_csv="data/inaturalist_mushroom_taxon_id.csv", 
+)
 
 # =====================
 # TRAIN
@@ -116,20 +160,20 @@ model.fit(
     train_ds,
     validation_data=val_ds,
     epochs=EPOCHS,
-    callbacks=[early_stopping, wandb_cb]
+    callbacks=[train_cb,] # early_stopping,
 )
 
 
 # =====================
 # EVALUATE MODEL
 # =====================
-metrics = evaluate_model(
-    model,
-    val_ds,
-    class_names,
-    edibility_csv="data/inaturalist_mushroom_taxon_id.csv",
-    log_wandb=True
-)
+# metrics = evaluate_model(
+    # model,
+    # val_ds,
+    # class_names,
+    # edibility_csv="data/inaturalist_mushroom_taxon_id.csv",
+    # log_wandb=True
+# )
 
 # =====================
 # SAVE MODEL
