@@ -221,3 +221,5 @@ images/
 logs/
 tuning/
 wandb/
+tuning_2/
+output/
