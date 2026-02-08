@@ -220,4 +220,9 @@ __marimo__/
 images/
 logs/
 tuning/
+tuning_2/
 wandb/
+output/
+
+# venvs
+.venv-qat/

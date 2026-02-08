@@ -12,6 +12,7 @@ import random
 from datetime import datetime
 from pathlib import Path
 from evaluate import evaluate_model
+import json
 
 # =====================
 # CONFIG
@@ -404,21 +405,54 @@ logger.info(f"\n Final validation metrics: {final_metrics}")
 
 wandb.log({f"final/{k}": v for k, v in final_metrics.items()})
 
-metrics = evaluate_model(
-    model,
-    val_ds,
-    class_names,
-    edibility_csv="data/inaturalist_mushroom_taxon_id.csv",
-    single_log=True,
-    plot_confusion_matrix=True,
-)
+if not SMOKE_TEST:
+    metrics = evaluate_model(
+        model,
+        val_ds,
+        class_names,
+        edibility_csv="data/inaturalist_mushroom_taxon_id.csv",
+        single_log=True,
+        plot_confusion_matrix=True,
+    )
 
 
 # =====================
-# SAVE MODEL
+# SAVE MODEL AND CONFIG
 # =====================
 model.save("output/efficientnet_v2_m_mushrooms")
 model.save_weights("output/efficientnet_v2_m_mushrooms.h5")
 logger.info("\n Model saved!")
+
+config = {
+    "architecture": "efficientnetv2-m",
+    "img_size": IMG_SIZE,
+    "num_classes": NUM_CLASSES,
+
+    "data_augmentation": {
+        "flip": True,
+        "rotation": 0.15,
+        "zoom": 0.2,
+        "contrast": not SMOKE_TEST,
+    },
+
+    "head": {
+        "type": best_hp.get("head_type"),
+        "units": 512 if best_hp.get("head_type") == "dense" else None,
+        "dropout": best_hp.get("dropout"),
+        "batch_norm": True,
+    },
+
+    "training": {
+        "label_smoothing": best_hp.get("label_smoothing"),
+    }
+}
+
+output_dir = Path("output/efficientnet_v2_config")
+output_dir.mkdir(exist_ok=True)
+
+with open(output_dir / "model_config.json", "w") as f:
+    json.dump(config, f, indent=2)
+
+logger.info("\n Model config saved!")
 
 wandb.save(str(log_file))
