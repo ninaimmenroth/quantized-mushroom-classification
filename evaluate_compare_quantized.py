@@ -27,8 +27,13 @@ SEED = 42
 EVAL_SPLIT = "test"  # Change to "val" if you want to use validation set
 
 # Model paths - compare float vs quantized
-FLOAT_MODEL_PATH = "output/efficientnet_v2_m_mushrooms"
-TFLITE_MODEL_PATH = "output/efficientnet_v2_m_mushrooms_int8.tflite"
+MODEL_NAME = "efficientnet_v2_m_mushrooms" # change here based on the model to evaluate
+EVAL_OUT_DIR = MODEL_NAME + "_eval"
+FLOAT_MODEL_PATH = "output/" + MODEL_NAME
+TFLITE_MODEL_PATH = "output/" + MODEL_NAME + "_int8.tflite"
+
+# Create output folder if it doesn't exist
+os.makedirs("output/" + EVAL_OUT_DIR, exist_ok=True)
 
 # SMOKE TEST MODE - Set to True for quick testing with minimal data
 SMOKE_TEST = False  # Change to True for smoke test
@@ -334,7 +339,7 @@ def plot_confusion_matrices(metrics_dict, class_names, output_dir="output"):
             plt.title(f"Species Confusion Matrix ({model_type.upper()})")
             plt.tight_layout()
             
-            save_path = os.path.join(output_dir, f"confusion_matrix_species_{model_type}.png")
+            save_path = os.path.join(output_dir, f"{EVAL_OUT_DIR}/confusion_matrix_species_{model_type}.png")
             plt.savefig(save_path, dpi=150, bbox_inches='tight')
             print(f"Saved species confusion matrix to {save_path}")
             
@@ -362,7 +367,7 @@ def plot_confusion_matrices(metrics_dict, class_names, output_dir="output"):
             plt.title(f"Edibility Confusion Matrix ({model_type.upper()})")
             plt.tight_layout()
             
-            save_path = os.path.join(output_dir, f"confusion_matrix_edibility_{model_type}.png")
+            save_path = os.path.join(output_dir, f"{EVAL_OUT_DIR}/confusion_matrix_edibility_{model_type}.png")
             plt.savefig(save_path, dpi=150, bbox_inches='tight')
             print(f"Saved edibility confusion matrix to {save_path}")
             
@@ -412,8 +417,8 @@ def compare_models(float_metrics, tflite_metrics):
         wandb.log({"comparison_table": wandb.Table(dataframe=df)})
     
     # Save to CSV
-    df.to_csv("output/model_comparison.csv", index=False)
-    print("\nComparison saved to output/model_comparison.csv")
+    df.to_csv(f"output/{EVAL_OUT_DIR}/model_comparison.csv", index=False)
+    print(f"\nComparison saved to output/{EVAL_OUT_DIR}/model_comparison.csv")
 
 
 if __name__ == "__main__":
