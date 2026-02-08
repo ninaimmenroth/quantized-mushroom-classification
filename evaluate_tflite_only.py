@@ -25,7 +25,12 @@ SEED = 42
 # Which dataset to evaluate on: 'val' or 'test'
 EVAL_SPLIT = "test"  # Change to "val" if you want to use validation set
 
-TFLITE_MODEL_PATH = "output/efficientnet_v2_m_mushrooms_int8.tflite"
+MODEL_NAME = "efficientnet_v2_m_mushrooms" # change here based on the model to evaluate
+EVAL_OUT_DIR = "output/" + MODEL_NAME + "_eval"
+TFLITE_MODEL_PATH = "output/" + MODEL_NAME + "_int8.tflite"
+
+# Create output folder if it doesn't exist
+os.makedirs(EVAL_OUT_DIR, exist_ok=True)
 
 # SMOKE TEST MODE - Set to True for quick testing with minimal data
 SMOKE_TEST = False  # Change to True for smoke test
@@ -250,9 +255,8 @@ def evaluate_tflite_model(
         plt.title("Species Confusion Matrix (TFLite INT8)")
         plt.tight_layout()
         
-        os.makedirs("output", exist_ok=True)
-        plt.savefig("output/confusion_matrix_species_tflite.png", dpi=150, bbox_inches='tight')
-        print("\nSaved species confusion matrix to output/confusion_matrix_species_tflite.png")
+        plt.savefig(f"{EVAL_OUT_DIR}/confusion_matrix_species_tflite.png", dpi=150, bbox_inches='tight')
+        print(f"\nSaved species confusion matrix to {EVAL_OUT_DIR}/confusion_matrix_species_tflite.png")
         
         if wandb.run is not None:
             wandb.log({"Confusion_Matrices/Species_confusion_matrix": wandb.Image(fig)})
@@ -275,8 +279,8 @@ def evaluate_tflite_model(
             plt.title("Edibility Confusion Matrix (TFLite INT8)")
             plt.tight_layout()
             
-            plt.savefig("output/confusion_matrix_edibility_tflite.png", dpi=150, bbox_inches='tight')
-            print("Saved edibility confusion matrix to output/confusion_matrix_edibility_tflite.png")
+            plt.savefig(f"{EVAL_OUT_DIR}/confusion_matrix_edibility_tflite.png", dpi=150, bbox_inches='tight')
+            print(f"Saved edibility confusion matrix to {EVAL_OUT_DIR}/confusion_matrix_edibility_tflite.png")
             
             if wandb.run is not None:
                 wandb.log({"Confusion_Matrices/Edibility_confusion_matrix": wandb.Image(fig)})
@@ -331,8 +335,8 @@ if __name__ == "__main__":
 
     # Save metrics to file
     metrics_df = pd.DataFrame([metrics])
-    metrics_df.to_csv("output/tflite_evaluation_metrics.csv", index=False)
-    print("\nMetrics saved to output/tflite_evaluation_metrics.csv")
+    metrics_df.to_csv(f"{EVAL_OUT_DIR}/tflite_evaluation_metrics.csv", index=False)
+    print(f"\nMetrics saved to {EVAL_OUT_DIR}/tflite_evaluation_metrics.csv")
 
     # Model size
     model_size = os.path.getsize(TFLITE_MODEL_PATH) / (1024 * 1024)
