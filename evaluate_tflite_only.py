@@ -28,7 +28,7 @@ EVAL_SPLIT = "test"  # Change to "val" if you want to use validation set
 TFLITE_MODEL_PATH = "output/efficientnet_v2_m_mushrooms_int8.tflite"
 
 # SMOKE TEST MODE - Set to True for quick testing with minimal data
-SMOKE_TEST = True  # Change to True for smoke test
+SMOKE_TEST = False  # Change to True for smoke test
 
 
 def softmax(x):
