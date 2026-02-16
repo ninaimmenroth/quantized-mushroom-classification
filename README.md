@@ -1,25 +1,54 @@
 # Quantized Mushroom Classification 🍄
 
-When foraging for mushrooms, many people struggle to identify the type of mushroom they have found. There is a wide variety of mushrooms one might stumble across in the woods, and many mushrooms have similar appearances making them difficult to distinguish. It is important to know whether or not the mushroom is edible. If it is, one would also like to know if it is tasty. To accomplish this, we plan to build a model capable of identifying ~50 species of mushrooms. The output will be top five species of mushroom, whether it’s edible and the certainty of the prediction. Furthermore, cell service is often unavailable in the forest, so it is beneficial to have a system which works offline. For this purpose, we will also attempt to compress through weight quantization.
+When foraging for mushrooms, many people struggle to identify the type of mushroom they have found. There is a wide variety of mushrooms one might stumble across in the woods, and many mushrooms have similar appearances making them difficult to distinguish. It is important to know whether or not the mushroom is edible. If it is, one would also like to know if it is tasty. To accomplish this, we built a model capable of identifying 50 species of mushrooms. The output is top five species of mushroom, whether it’s edible and the certainty of the prediction. Furthermore, cell service is often unavailable in the forest, so it is beneficial to have a system which works offline. For this purpose, we also attempted to compress through weight quantization.
 
 ---
 
 ## Table of Contents
 
-1. [Implementation Plan](#implementation-plan)
-2. [Project Setup](#project-setup)  
+1. [Related work](#related-work)
+2. [Procedure](#procedure)
+3. [Results and evaluation](#results-and-evaluation)
+4. [Project Setup](#project-setup)  
+5. [Sources](#sources)
 
 ---
 
-## Implementation Plan
+## Related Work
+Fine-grained image classification has been widely studied using deep convolutional neural networks (CNNs), particularly following the success of residual architectures such as ResNet (He et al., 2016). These approaches have demonstrated strong performance in distinguishing visually similar categories, especially when combined with transfer learning and data augmentation techniques. More recently, models such as EfficientNet and EfficientNetV2 (Tan & Le, 2019; Tan & Le, 2021) have achieved state-of-the-art accuracy–efficiency trade-offs by jointly scaling network depth, width, and input resolution. This compound scaling strategy makes them particularly well-suited for deployment in computationally constrained environments.
+
+In the domain of automated mushroom identification, prior work has explored classification using fine-tuned CNN architectures (Jacob, M.S. et al., 2025). Furthermore, recent research by Adhikari et al. (2024) investigated model compression techniques for mushroom recognition, focusing on seven edible species to enable efficient deployment in practical settings.
+
+Model compression and quantization have become established strategies for reducing model size and inference latency (Jacob, B. et al., 2018; Rokh et al., 2023). In particular, weight quantization enables significant reductions in memory footprint while often causing only minimal accuracy degradation, thereby facilitating deployment on resource-constrained devices such as mobile and embedded systems.
+
+
+## Procedure
 
 The primary goal of this project is to investigate how model compression, specifically weight quantization, influences classification performance in a fine-grained, safety-relevant image recognition task. The focus of the evaluation lies in understanding the trade-off between model accuracy, reliability, and deployment efficiency, particularly in offline scenarios where computational resources are limited.
 
 The implementation uses python 3.11 and tensorflow for better compatibility with the chosen models (EfficientNet-V2).
 
+### Pipeline Overview
+![Model Pipeline](readme-images/pipeline-quantized-mushroom-classification.jpg)
+
+The pipeline begins with Data Acquisition, where labeled mushroom images are retrieved from the dataset source and prepared for experimentation. This step is performed once at the beginning and forms the foundation for all subsequent experiments.
+
+For each model configuration, the following steps are then executed:
+
+1. Data Loading
+2. Hyperparameter Optimization
+3. Head Training
+4. Fine-tuning (skipped for ResNet50)
+5. Post-Training Quantization (PTQ)
+6. Evaluation
+
+
 ### Data Acquisition
 
 The dataset is loaded via API from [iNaturalist](https://www.inaturalist.org/) and consists of labeled mushroom images covering approximately 50 species. To reflect realistic deployment constraints and reduce computational cost, lower-resolution images are used throughout the experiments. This choice also allows us to assess how well modern convolutional architectures generalize under constrained input quality.
+
+![Example Images](readme-images/species-examples.png)
+
 
 ### Data Loading and Preprocessing
 
@@ -35,27 +64,31 @@ These steps are applied consistently across all models to ensure fair comparison
 
 To evaluate both accuracy and efficiency, several architectures and training strategies are compared:
 
-- EfficientNet-V2-M (fine-tuned): 
+- EfficientNet-V2-M (fine-tuned):    
 EfficientNet-V2-M is selected as the primary model due to its strong performance on lower-resolution images and its suitability for transfer learning. Larger variants (V2-L / V2-XL) are excluded as they typically require high-resolution inputs to fully leverage their capacity.
 
-- EfficientNet-V2-M (fine-tuned + quantized):
+- EfficientNet-V2-M (fine-tuned + quantized):   
 The same fine-tuned model is further compressed using quantization-aware training (QAT) to evaluate the impact of weight quantization on accuracy, calibration, and inference speed.
 
-- Baseline model (ResNet):
+- Baseline model (ResNet):  
 A standard ResNet architecture is used as a baseline. Only the final classification layer is replaced and trained, without full fine-tuning, to provide a lower-bound reference for performance.
 
-- Optional: EfficientNet-V2-S (fine-tuned):
+- Optional, was not implemented for now:   EfficientNet-V2-S (fine-tuned):   
 If time permits, a smaller EfficientNet-V2-S model is fine-tuned to analyze performance–efficiency trade-offs for even more constrained deployment scenarios and to compare the quantized model with the smaller version of the same model.
 
 ### Training Procedure
 
-Training is performed in two stages:
+Training is performed in three stages:
 
-- Fine-tuning phase
+- **Hyperparameter Optimization:**  
+Prior to full fine-tuning, hyperparameter optimization is performed to identify suitable configurations for learning rate, batch size, optimizer settings, and regularization strength. This ensures that the final comparison between full-precision and quantized models is based on well-tuned training conditions.
+
+- **Fine-tuning phase:**
 The classifier head is trained first, followed by partial unfreezing of the backbone to adapt high-level features to the mushroom classification task.
 
-- Quantization-aware training (QAT)
-After fine-tuning, QAT is applied to the EfficientNet-V2-M model to ensure a fair comparison between the full-precision and quantized versions.
+- **Post-Training Quantization (PTQ):**  
+After fine-tuning is completed, the trained full-precision EfficientNet-V2-M model is converted using post-training quantization. A representative dataset is used during calibration to minimize accuracy degradation and ensure a fair comparison between the full-precision and quantized versions.
+
 
 All experiments are tracked using Weights & Biases (W&B) to log hyperparameters, training curves, evaluation metrics, and model artifacts.
 
@@ -78,6 +111,8 @@ Given the safety-critical nature of mushroom identification, confidence reliabil
 - Analysis of prediction confidence to assess whether the model’s certainty aligns with its accuracy
 
 Reliable confidence estimates are especially important when advising users about edibility, where incorrect but overconfident predictions could have severe consequences.
+---
+## Results and Evaluation
 
 ---
 ## Project Setup
@@ -212,3 +247,11 @@ Your shell prompt will return to normal.
 
 ---
 
+## Sources
+- Adhikari, B., Hossain, M. M., Akter, S., & Ahamed, M. S. (2024, June). MushroomDetect: An Investigation into Local Mushroom Classification in Bangladesh Using Transfer Learning. In 2024 15th International Conference on Computing Communication and Networking Technologies (ICCCNT) (pp. 1-6). IEEE.
+- He, K., Zhang, X., Ren, S., & Sun, J. (2016). Deep residual learning for image recognition. In Proceedings of the IEEE conference on computer vision and pattern recognition (pp. 770-778).
+- Jacob, B., Kligys, S., Chen, B., Zhu, M., Tang, M., Howard, A., ... & Kalenichenko, D. (2018). Quantization and training of neural networks for efficient integer-arithmetic-only inference. In Proceedings of the IEEE conference on computer vision and pattern recognition (pp. 2704-2713).
+- Jacob, M. S., Xu, A., Qian, K., Qi, Z., Li, X., & Zhang, B. (2025). Artificial Intelligence in Edible Mushroom Cultivation, Breeding, and Classification: A Comprehensive Review. Journal of Fungi, 11(11), 758. https://doi.org/10.3390/jof11110758
+- Rokh, B., Azarpeyvand, A., & Khanteymoori, A. (2023). A comprehensive survey on model quantization for deep neural networks in image classification. ACM Transactions on Intelligent Systems and Technology, 14(6), 1-50.
+- Tan, M., & Le, Q. (2019, May). Efficientnet: Rethinking model scaling for convolutional neural networks. In International conference on machine learning (pp. 6105-6114). PMLR.
+- Tan, M., & Le, Q. (2021, July). Efficientnetv2: Smaller models and faster training. In International conference on machine learning (pp. 10096-10106). PMLR.
