@@ -50,8 +50,6 @@ The dataset is loaded via API from [iNaturalist](https://www.inaturalist.org/) a
 ![Example Images](readme-images/species-examples.png)
 
 
-![Example Images](readme-images/species-examples.png)
-
 
 ### Data Loading and Preprocessing
 
@@ -114,6 +112,7 @@ Given the safety-critical nature of mushroom identification, confidence reliabil
 - Analysis of prediction confidence to assess whether the model’s certainty aligns with its accuracy
 
 Reliable confidence estimates are especially important when advising users about edibility, where incorrect but overconfident predictions could have severe consequences.
+
 ---
 ## Results and Evaluation
 
@@ -146,7 +145,7 @@ This is not high enough for safe use. It would also be interesting to look at pr
 | EfficientNet-V2-M (finetune+quantized)   | 0.84 | 0.74 |
 
 #### Edibility-Related Confusion Matrix for the ResNet50 Model
-![alt text](media_images_Confusion_Matrices_Edibility_confusion_matrix_2_8fb3fe021485a162756f.png)
+![Confusion Matrix](readme-images/ResNet50-edibilty-confusion-matrix.png)
 
 ### Quantization
 
