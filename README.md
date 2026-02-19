@@ -45,7 +45,10 @@ For each model configuration, the following steps are then executed:
 
 ### Data Acquisition
 
-The dataset is loaded via API from [iNaturalist](https://www.inaturalist.org/) and consists of labeled mushroom images covering approximately 50 species. To reflect realistic deployment constraints and reduce computational cost, lower-resolution images are used throughout the experiments. This choice also allows us to assess how well modern convolutional architectures generalize under constrained input quality.
+The dataset is loaded via API from [iNaturalist](https://www.inaturalist.org/) and consists of labeled mushroom images covering approximately 50 species. Species were selected based on their prevalence in iNaturalist submissions from Germany and were restricted to those exhibiting typical mushroom morphology, excluding lichens and other non-mushroom fungi. For each species, roughly 1,000 images were collected, limited to observations originating from Germany and designated as research-grade. For information regarding reuse of the data, please refer to the DATASET_LICENSE. To reflect realistic deployment constraints and reduce computational cost, lower-resolution images are used throughout the experiments. This choice also allows us to assess how well modern convolutional architectures generalize under constrained input quality.
+
+![Example Images](readme-images/species-examples.png)
+
 
 ![Example Images](readme-images/species-examples.png)
 
@@ -113,6 +116,64 @@ Given the safety-critical nature of mushroom identification, confidence reliabil
 Reliable confidence estimates are especially important when advising users about edibility, where incorrect but overconfident predictions could have severe consequences.
 ---
 ## Results and Evaluation
+
+Overall, the baseline ResNet-50 model outperformed the fine-tuned EfficientNetV2-M model in our experiments. Model quantization was effective in reducing both the model size and computational requirements, demonstrating its potential for deployment in resource-constrained environments. However, this compression came at the cost of a noticeable decline in predictive performance.
+
+These findings suggest that quantization could be a viable approach for this use case, provided it is applied to a stronger-performing base model. As future work, we recommend exploring smaller pre-trained variants of EfficientNetV2, which may offer a more favorable trade-off between efficiency and accuracy. In addition, further experimentation with refined fine-tuning strategies may help improve overall performance and better leverage the capabilities of the underlying architecture.
+
+All metrics are computed on a holdout test set.
+
+### Species Accuracy
+
+No experimets yielded a sufficent top-1 accuracy for real-world deployment. The ResNet50 attained the highest top-5 accuracy of 0.91. This would allow users to further investigate and correclty identify species in most cases. 
+
+| Model | Top-1 Acc. | Top-5 Accuracy |
+|-------|-----------------|---------------------|
+| ResNet50  | 0.67 | 0.91 |
+| EfficientNet-V2-M (finetune)   | 0.57 | 0.86 |
+| EfficientNet-V2-M (finetune+quantized)   | 0.43 | 0.75 |
+
+### Edibility Metrics
+
+Edibility-related evaluation metrics were computed to assess the likelihood that the models incorrectly classify inedible species as edible. We pay special attention to precision, minimize the likelihood of labeling a poisonous mushromm as edible.
+
+This is not high enough for safe use. It would also be interesting to look at precision@5 since the top 5 species would be made available to the user with confidence scores.
+
+| Model | Precision | AUC_ROC |
+|-------|-----------------|---------------------|
+| ResNet50  | 0.89 | 0.84 |
+| EfficientNet-V2-M (finetune)   | 0.87 | 0.81 |
+| EfficientNet-V2-M (finetune+quantized)   | 0.84 | 0.74 |
+
+#### Edibility-Related Confusion Matrix for the ResNet50 Model
+![alt text](media_images_Confusion_Matrices_Edibility_confusion_matrix_2_8fb3fe021485a162756f.png)
+
+### Quantization
+
+We evaluate the fine-tuned EfficientNetV2-M model using standard float32 weights against the fully quantized TFLite version, in which both weights and computations are represented as 8-bit integers. 
+
+#### Model Size
+
+Quantization effectively reduced the model’s memory footprint, resulting in a 4.03× smaller model compared to the original float32 version.
+
+| Model               | Size (MB) |
+|---------------------|-----------|
+| float32             | 230       |
+| TFLite INT8         | 57        |
+
+#### Evaluation Metrics
+
+Compression didn’t affect species already misclassified, but introduced errors in additional species, driving most of the accuracy loss.
+
+| Metric               | float32 | TFLite INT8 | Difference (Abs) | Difference (%) |
+|----------------------|---------|-------------|------------------|----------------|
+| accuracy_species     | 0.5748  | 0.4333      | -0.1415          | -24.62%        |
+| top_5_accuracy       | 0.8570  | 0.7489      | -0.1081          | -12.62%        |
+| precision_edible     | 0.8681  | 0.8379      | -0.0302          | -3.47%         |
+| auc_edible           | 0.8086  | 0.7420      | -0.0666          | -8.24%         |
+
+### Confidence Evaluation
+The fine-tuned Efficient_net-V2-M achieved a Top-1 accuracy of 0.57, indicating moderate species-level performance. Analysis of prediction confidence revealed a low mean confidence of 0.26 with a standard deviation of 0.2, suggesting that the model is generally uncertain and moderately variable in its predictions. While this underconfidence may reduce the risk of overconfident errors in a safety-critical context like mushroom identification, low-confidence predictions could be prioritized for human review to enhance safety.
 
 ---
 ## Project Setup
