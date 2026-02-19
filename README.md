@@ -169,6 +169,8 @@ Compression didn’t affect species already misclassified, but introduced errors
 | precision_edible     | 0.8681  | 0.8379      | -0.0302          | -3.47%         |
 | auc_edible           | 0.8086  | 0.7420      | -0.0666          | -8.24%         |
 
+### Confidence Evaluation
+The fine-tuned Efficient_net-V2-M achieved a Top-1 accuracy of 0.57, indicating moderate species-level performance. Analysis of prediction confidence revealed a low mean confidence of 0.26 with a standard deviation of 0.2, suggesting that the model is generally uncertain and moderately variable in its predictions. While this underconfidence may reduce the risk of overconfident errors in a safety-critical context like mushroom identification, low-confidence predictions could be prioritized for human review to enhance safety.
 
 ---
 ## Project Setup
