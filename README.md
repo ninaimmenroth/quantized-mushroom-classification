@@ -50,6 +50,9 @@ The dataset is loaded via API from [iNaturalist](https://www.inaturalist.org/) a
 ![Example Images](readme-images/species-examples.png)
 
 
+![Example Images](readme-images/species-examples.png)
+
+
 ### Data Loading and Preprocessing
 
 The data loader performs the following preprocessing steps:
